@@ -1,0 +1,8 @@
+[package]
+name = "log-parser"
+version = "0.1.0"
+authors = ["Blake Kaplan <mrbkap@gmail.com>"]
+
+[dependencies]
+regex = "0.1"
+
