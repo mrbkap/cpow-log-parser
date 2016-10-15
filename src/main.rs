@@ -65,15 +65,19 @@ struct CPOWFinder<'a> {
 }
 
 impl<'a> CPOWFinder<'a> {
-    fn peek_line(self: &mut CPOWFinder<'a>) -> Option<&'a LogLine> {
-        return if self.idx < self.lines.len() { Some(& self.lines[self.idx]) } else { None };
+    fn peek_line(&self) -> Option<&'a LogLine> {
+        return if self.idx < self.lines.len() {
+            Some(& self.lines[self.idx])
+        } else {
+            None
+        };
     }
 
-    fn take_line(self: &mut CPOWFinder<'a>) {
+    fn take_line(&mut self) {
         self.idx += 1;
     }
 
-    fn next_line(self: &mut CPOWFinder<'a>) -> &'a LogLine {
+    fn next_line(&mut self) -> &'a LogLine {
         if let Some(ref line) = self.peek_line() {
             self.idx += 1;
             return line;
@@ -82,7 +86,7 @@ impl<'a> CPOWFinder<'a> {
         panic!("shouldn't be out of lines");
     }
 
-    fn parse_cpow(self: &mut CPOWFinder<'a>, testname: &str) -> Option<CPOW> {
+    fn parse_cpow(&mut self, testname: &str) -> Option<CPOW> {
         let mut report = true; // only report CPOWs from this test.
         let mut cpow = match self.next_line() {
             &LogLine::StackComponent(idx, ref filename, line_no) => {
@@ -102,6 +106,7 @@ impl<'a> CPOWFinder<'a> {
 
         while let Some(next_line) = self.peek_line() {
             match next_line {
+                // Pull lines until we find the next test or the next CPOW.
                 &LogLine::StackComponent(0, _, _) | &LogLine::TestStart(_) => break,
                 &LogLine::StackComponent(_, ref filename, _) => {
                     self.take_line();
@@ -115,7 +120,7 @@ impl<'a> CPOWFinder<'a> {
         if report { Some(cpow) } else { None }
     }
 
-    fn parse_test(self: &mut CPOWFinder<'a>, testname: &str) -> Option<Test> {
+    fn parse_test(&mut self, testname: &str) -> Option<Test> {
         let mut cpows = Vec::new();
         while let Some(next_line) = self.peek_line() {
             match next_line {
