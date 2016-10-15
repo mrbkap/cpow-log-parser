@@ -12,7 +12,7 @@ struct Parser {
     stack_component: Regex,
 }
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug)]
 struct CPOW {
     line_no: u32,
     shim: bool,
