@@ -1,74 +1,152 @@
 extern crate regex;
 
-use std::io::{BufRead, BufReader};
+use std::collections::HashSet;
+use std::env::args;
 use std::fs::File;
+use std::io::{BufRead, BufReader};
 
 use regex::Regex;
 
-struct Matcher {
+struct Parser {
     test_start: Regex,
     stack_component: Regex,
 }
 
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct CPOW {
     line_no: u32,
     shim: bool,
 }
 
+#[derive(Debug)]
 struct Test {
     testname: String,
     cpows: Vec<CPOW>,
 }
 
-impl Matcher {
-    fn new() -> Matcher {
-        Matcher {
-            test_start: Regex::new(r"\bTEST-START\s+\|\s+(.+)$").unwrap(),
-            //                               1                                  2   3     4
-            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+(.+)/(.+):(\d+)\s+\(.*\)").unwrap(),
+#[derive(Debug)]
+enum LogLine {
+    TestStart(String),
+    StackComponent(u32, String, u32),
+}
+
+impl Parser {
+    fn new() -> Parser {
+        Parser {
+            test_start: Regex::new(r"\bTEST-START\s+\|\s+.+/(.+)$").unwrap(),
+            //                               1                                    2     3
+            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+.+/(.+):(\d+)\s+\(.*\)").unwrap(),
         }
     }
 
-    fn parse_file(self: &Matcher, fname: &str) -> Vec<Test> {
-        let mut tests = Vec::new();
-        let mut file = File::open(fname).unwrap();
-        let mut f = BufReader::new(file);
-        let mut testname: String;
-        let mut cur_test: Option<Test> = None;
-        let mut cur_cpow: Option<CPOW> = None;
+    fn parse_file(self: &Parser, fname: &str) -> Vec<LogLine> {
+        let mut parsed = Vec::new();
+        let file = File::open(fname).unwrap();
+        let f = BufReader::new(file);
         for line in f.lines().filter_map(|r| r.ok()) {
             if let Some(captures) = self.test_start.captures(&line) {
-                if let Some(cpow) = cur_cpow {
-                    match cur_test {
-                        Some(mut t) => { t.cpows.push(cpow); }
-                        None => { tests.push(Test { testname: testname, cpows: vec![ cpow ] }); }
-                    }
-                }
-                if let Some(mut t) = cur_test {
-                    tests.push(t);
-                }
-
-                cur_test = None;
-                cur_cpow = None;
-                testname = String::from(captures.at(1).unwrap());
+                let testname = String::from(captures.at(1).unwrap());
+                parsed.push(LogLine::TestStart(testname));
             } else if let Some(captures) = self.stack_component.captures(&line) {
                 let idx: u32 = captures.at(1).unwrap().parse::<u32>().unwrap();
-                let fname = captures.at(3).unwrap();
-                let line_no = captures.at(4).unwrap().parse::<u32>().unwrap();
-                if idx == 0 {
-                    if let Some(cpow) = cur_cpow {
-                        let mut test = cur_test.unwrap();
-                        test.cpows.push(cpow);
-                    }
+                let fname = String::from(captures.at(2).unwrap());
+                let line_no = captures.at(3).unwrap().parse::<u32>().unwrap();
+                parsed.push(LogLine::StackComponent(idx, fname, line_no));
+            }
+        }
 
-                    let cur_line = if fname == testname { line_no } else { 0 };
-                    cur_cpow = Some(CPOW { line_no: cur_line, shim: false });
+        parsed
+    }
+}
 
-                    if cur_test.is_none() {
-                        cur_test = Some(Test { testname: testname, cpows: Vec::new() });
+struct CPOWFinder<'a> {
+    idx: usize,
+    lines: &'a [LogLine],
+}
+
+impl<'a> CPOWFinder<'a> {
+    fn peek_line(self: &mut CPOWFinder<'a>) -> Option<&'a LogLine> {
+        return if self.idx < self.lines.len() { Some(& self.lines[self.idx]) } else { None };
+    }
+
+    fn take_line(self: &mut CPOWFinder<'a>) {
+        self.idx += 1;
+    }
+
+    fn next_line(self: &mut CPOWFinder<'a>) -> &'a LogLine {
+        if let Some(ref line) = self.peek_line() {
+            self.idx += 1;
+            return line;
+        }
+
+        panic!("shouldn't be out of lines");
+    }
+
+    fn parse_cpow(self: &mut CPOWFinder<'a>, testname: &str) -> Option<CPOW> {
+        let mut report = true; // only report CPOWs from this test.
+        let mut cpow = match self.next_line() {
+            &LogLine::StackComponent(idx, ref filename, line_no) => {
+                assert!(idx == 0);
+                if filename != testname {
+                    report = false;
+                }
+                CPOW {
+                    line_no: line_no,
+                    shim: false
+                }
+            }
+            &LogLine::TestStart(_) => {
+                panic!("bad line");
+            }
+        };
+
+        while let Some(next_line) = self.peek_line() {
+            match next_line {
+                &LogLine::StackComponent(0, _, _) | &LogLine::TestStart(_) => break,
+                &LogLine::StackComponent(_, ref filename, _) => {
+                    self.take_line();
+                    if !cpow.shim && filename == "RemoteAddonsParent.jsm" {
+                        cpow.shim = true;
                     }
-                } else {
-                    // todo
+                }
+            }
+        }
+
+        if report { Some(cpow) } else { None }
+    }
+
+    fn parse_test(self: &mut CPOWFinder<'a>, testname: &str) -> Option<Test> {
+        let mut cpows = Vec::new();
+        while let Some(next_line) = self.peek_line() {
+            match next_line {
+                &LogLine::TestStart(_) => break,
+                &LogLine::StackComponent(_, _, _) => {
+                    if let Some(c) = self.parse_cpow(testname) {
+                        cpows.push(c);
+                    }
+                }
+            }
+        }
+
+        if !cpows.is_empty() {
+            cpows.sort_by_key(|k| k.line_no);
+            Some(Test { testname: String::from(testname), cpows: cpows })
+        } else {
+            None
+        }
+    }
+
+    fn compile_cpows(lines: &[LogLine]) -> Vec<Test> {
+        let mut finder = CPOWFinder { idx: 0, lines: lines };
+        let mut tests = Vec::new();
+        while let Some(next_line) = finder.peek_line() {
+            match next_line {
+                &LogLine::StackComponent(..) => continue,
+                &LogLine::TestStart(ref fname) => {
+                    finder.take_line();
+                    if let Some(test) = finder.parse_test(fname) {
+                        tests.push(test);
+                    }
                 }
             }
         }
@@ -78,14 +156,23 @@ impl Matcher {
 }
 
 fn main() {
-    let m = Matcher::new();
-    println!("{:?}", m.test_start.find("[task 2016-10-04T23:50:30.410193Z] 23:50:30     INFO -  MEMORY STAT | vsize 1116MB | residentFast 264MB | heapAllocated 118MB"));
-    let res = m.test_start.captures("[task 2016-10-04T23:50:30.073593Z] 23:50:30     INFO -  42 INFO TEST-START | browser/components/search/test/browser_addEngine.js");
-    println!("{:?}", res);
-    /*
-    for cap in res.captures_iter() {
-        println("{:?}", cap);
-    }*/
-    println!("{:?}", m.stack_component.find("[task 2016-10-04T23:50:30.073593Z] 23:50:30     INFO -  42 INFO TEST-START | browser/components/search/test/browser_addEngine.js"));
-    println!("{:?}", m.stack_component.captures("[task 2016-10-04T23:50:31.304736Z] 23:50:31     INFO -  #0 0x7faaa0c09198 i   chrome://mochitests/content/browser/browser/components/search/test/browser_amazon_behavior.js:136 (0x7faa865989a0 @ 80)"));
+    let m = Parser::new();
+
+    for fname in args() {
+        let p = m.parse_file(&fname);
+        let tests = CPOWFinder::compile_cpows(p.as_slice());
+
+        for test in tests {
+            println!("{} -", test.testname);
+
+            // Only print each line's CPOW once.
+            let mut h = HashSet::<u32>::new();
+            for c in test.cpows {
+                if !h.contains(&c.line_no) {
+                    h.insert(c.line_no);
+                    println!("\t{} ({})", c.line_no, c.shim);
+                }
+            }
+        }
+    }
 }
