@@ -67,7 +67,7 @@ struct CPOWFinder<'a> {
 impl<'a> CPOWFinder<'a> {
     fn peek_line(&self) -> Option<&'a LogLine> {
         return if self.idx < self.lines.len() {
-            Some(& self.lines[self.idx])
+            Some(&self.lines[self.idx])
         } else {
             None
         };
