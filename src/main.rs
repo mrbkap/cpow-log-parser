@@ -1,6 +1,5 @@
 extern crate regex;
 
-use std::collections::HashSet;
 use std::env::args;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -184,16 +183,26 @@ fn main() {
         let tests = CPOWFinder::compile_cpows(p.as_slice());
 
         for test in tests {
-            println!("{} -", test.testname);
+            print!("{} -", test.testname);
+            let mut non_shims = test.cpows.iter()
+                                          .filter(|c| !c.shim)
+                                          .map(|c| c.line_no)
+                                          .collect::<Vec<_>>();
+            let mut shims = test.cpows.iter()
+                                      .filter(|c| c.shim)
+                                      .map(|c| c.line_no)
+                                      .collect::<Vec<_>>();
 
-            // Only print each line's CPOW once.
-            let mut h = HashSet::<u32>::new();
-            for c in test.cpows {
-                if !h.contains(&c.line_no) {
-                    h.insert(c.line_no);
-                    println!("\t{} ({})", c.line_no, c.shim);
-                }
+            non_shims.dedup();
+            shims.dedup();
+
+            if !non_shims.is_empty() {
+                print!(" {:?}", non_shims);
             }
+            if !shims.is_empty() {
+                print!(" shims: {:?}", shims);
+            }
+            println!("");
         }
     }
 }
