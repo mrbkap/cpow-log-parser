@@ -12,7 +12,7 @@ struct Parser {
     stack_component: Regex,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct CPOW {
     line_no: u32,
     shim: bool,
@@ -34,15 +34,19 @@ impl Parser {
     fn new() -> Parser {
         Parser {
             test_start: Regex::new(r"\bTEST-START\s+\|\s+.+/(.+)$").unwrap(),
-            //                               1                                    2     3
-            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+.+/(.+):(\d+)\s+\(.*\)").unwrap(),
+            // Capture indices:              1                                    2     3
+            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+.+/(.+):(\d+)\s+\(.*\)$").unwrap(),
         }
     }
 
     fn parse_file(self: &Parser, fname: &str) -> Vec<LogLine> {
         let mut parsed = Vec::new();
-        let file = File::open(fname).unwrap();
-        let f = BufReader::new(file);
+        let file = File::open(fname);
+        if file.is_err() {
+            println!("Warning ({}): {}", fname, file.unwrap_err());
+            return parsed;
+        }
+        let f = BufReader::new(file.unwrap());
         for line in f.lines().filter_map(|r| r.ok()) {
             if let Some(captures) = self.test_start.captures(&line) {
                 let testname = String::from(captures.at(1).unwrap());
@@ -62,30 +66,39 @@ impl Parser {
 struct CPOWFinder<'a> {
     idx: usize,
     lines: &'a [LogLine],
+    peeked: bool,
 }
 
 impl<'a> CPOWFinder<'a> {
-    fn peek_line(&self) -> Option<&'a LogLine> {
+    // Returns the next line and leaves it.
+    fn peek_line(&mut self) -> Option<&'a LogLine> {
         return if self.idx < self.lines.len() {
+            self.peeked = true;
             Some(&self.lines[self.idx])
         } else {
             None
         };
     }
 
+    // "takes" the previously peeked line.
     fn take_line(&mut self) {
+        assert!(self.peeked, "take without corresponding peek");
+        self.peeked = false;
         self.idx += 1;
     }
 
+    // Combination peek + take if we know there's at least one line.
     fn next_line(&mut self) -> &'a LogLine {
         if let Some(ref line) = self.peek_line() {
-            self.idx += 1;
+            self.take_line();
             return line;
         }
 
         panic!("shouldn't be out of lines");
     }
 
+    // Given a CPOW usage, returns information about the CPOW if it is from
+    // the test we care about.
     fn parse_cpow(&mut self, testname: &str) -> Option<CPOW> {
         let mut report = true; // only report CPOWs from this test.
         let mut cpow = match self.next_line() {
@@ -94,6 +107,7 @@ impl<'a> CPOWFinder<'a> {
                 if filename != testname {
                     report = false;
                 }
+
                 CPOW {
                     line_no: line_no,
                     shim: false
@@ -120,6 +134,7 @@ impl<'a> CPOWFinder<'a> {
         if report { Some(cpow) } else { None }
     }
 
+    // Given a TEST-START, looks for and accumulates CPOW uses.
     fn parse_test(&mut self, testname: &str) -> Option<Test> {
         let mut cpows = Vec::new();
         while let Some(next_line) = self.peek_line() {
@@ -141,8 +156,9 @@ impl<'a> CPOWFinder<'a> {
         }
     }
 
+    // Returns a list of tests that have CPOW uses.
     fn compile_cpows(lines: &[LogLine]) -> Vec<Test> {
-        let mut finder = CPOWFinder { idx: 0, lines: lines };
+        let mut finder = CPOWFinder { idx: 0, lines: lines, peeked: false };
         let mut tests = Vec::new();
         while let Some(next_line) = finder.peek_line() {
             match next_line {
