@@ -17,24 +17,38 @@ struct CPOW {
     shim: bool,
 }
 
+// A CPOW only indirectly used by a test.
+#[derive(Debug)]
+struct IndirectCPOW {
+    line_no: u32,
+    shim: bool,
+    filename: String,
+}
+
+enum SomeCPOW {
+    CPOW(CPOW),
+    Indirect(IndirectCPOW),
+}
+
 #[derive(Debug)]
 struct Test {
     testname: String,
     cpows: Vec<CPOW>,
+    indirect_cpows: Vec<IndirectCPOW>,
 }
 
 #[derive(Debug)]
 enum LogLine {
     TestStart(String),
-    StackComponent(u32, String, u32),
+    StackComponent(u32, String, String, u32),
 }
 
 impl Parser {
     fn new() -> Parser {
         Parser {
             test_start: Regex::new(r"\bTEST-START\s+\|\s+.+/(.+)$").unwrap(),
-            // Capture indices:              1                                    2     3
-            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+.+/(.+):(\d+)\s+\(.*\)$").unwrap(),
+            // Capture indices:              1                                  2    3     4
+            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+(.+)/(.+):(\d+)\s+\(.*\)$").unwrap(),
         }
     }
 
@@ -52,9 +66,10 @@ impl Parser {
                 parsed.push(LogLine::TestStart(testname));
             } else if let Some(captures) = self.stack_component.captures(&line) {
                 let idx: u32 = captures.at(1).unwrap().parse::<u32>().unwrap();
-                let fname = String::from(captures.at(2).unwrap());
-                let line_no = captures.at(3).unwrap().parse::<u32>().unwrap();
-                parsed.push(LogLine::StackComponent(idx, fname, line_no));
+                let path = String::from(captures.at(2).unwrap());
+                let fname = String::from(captures.at(3).unwrap());
+                let line_no = captures.at(4).unwrap().parse::<u32>().unwrap();
+                parsed.push(LogLine::StackComponent(idx, path, fname, line_no));
             }
         }
 
@@ -98,19 +113,33 @@ impl<'a> CPOWFinder<'a> {
 
     // Given a CPOW usage, returns information about the CPOW if it is from
     // the test we care about.
-    fn parse_cpow(&mut self, testname: &str) -> Option<CPOW> {
-        let mut report = true; // only report CPOWs from this test.
-        let mut cpow = match self.next_line() {
-            &LogLine::StackComponent(idx, ref filename, line_no) => {
+    fn parse_cpow(&mut self, testname: &str) -> Option<SomeCPOW> {
+        fn is_test_path(p: &str) -> bool {
+            p.starts_with("chrome://mochitests/")
+        }
+
+        let mut report = false; // only report CPOWs from this test.
+        let mut cpow = CPOW { line_no: 0, shim: false };
+        let mut indirect_cpow = IndirectCPOW { line_no: 0, shim: false, filename: String::new() };
+        match self.next_line() {
+            &LogLine::StackComponent(idx, ref path, ref filename, line_no) => {
                 assert!(idx == 0);
-                if filename != testname {
-                    report = false;
+                if is_test_path(path) {
+                    report = true;
                 }
 
-                CPOW {
-                    line_no: line_no,
-                    shim: false
+                if filename == testname {
+                    // Direct CPOW, fill it in now.
+                    cpow.line_no = line_no;
+                } else if report {
+                    // Indirect CPOW, start filling it in now.
+                    indirect_cpow.line_no = line_no;
+                    indirect_cpow.filename.push_str(path);
+                    indirect_cpow.filename.push('/');
+                    indirect_cpow.filename.push_str(filename);
                 }
+
+                // Otherwise, we don't know what to do with this filename.
             }
             &LogLine::TestStart(_) => {
                 panic!("bad line");
@@ -120,36 +149,66 @@ impl<'a> CPOWFinder<'a> {
         while let Some(next_line) = self.peek_line() {
             match next_line {
                 // Pull lines until we find the next test or the next CPOW.
-                &LogLine::StackComponent(0, _, _) | &LogLine::TestStart(_) => break,
-                &LogLine::StackComponent(_, ref filename, _) => {
+                &LogLine::StackComponent(0, _, _, _) | &LogLine::TestStart(_) => break,
+                &LogLine::StackComponent(_, ref path, ref filename, line_no) => {
                     self.take_line();
+                    if !report && is_test_path(path) {
+                        report = true;
+
+                        if cpow.line_no == 0 {
+                            if testname == filename {
+                                cpow.line_no = line_no;
+                            } else if indirect_cpow.line_no == 0 {
+                                // This is the first stack component in a
+                                // test, use it.
+                                indirect_cpow.line_no = line_no;
+                                indirect_cpow.filename.push_str(path);
+                                indirect_cpow.filename.push('/');
+                                indirect_cpow.filename.push_str(filename);
+                            }
+                        }
+                    }
                     if !cpow.shim && filename == "RemoteAddonsParent.jsm" {
                         cpow.shim = true;
+                        indirect_cpow.shim = true;
                     }
                 }
             }
         }
 
-        if report { Some(cpow) } else { None }
+        if report {
+            if cpow.line_no != 0 {
+                Some(SomeCPOW::CPOW(cpow))
+            } else {
+                Some(SomeCPOW::Indirect(indirect_cpow))
+            }
+        } else {
+            None
+        }
     }
 
     // Given a TEST-START, looks for and accumulates CPOW uses.
     fn parse_test(&mut self, testname: &str) -> Option<Test> {
         let mut cpows = Vec::new();
+        let mut indirect_cpows = Vec::new();
         while let Some(next_line) = self.peek_line() {
             match next_line {
                 &LogLine::TestStart(_) => break,
-                &LogLine::StackComponent(_, _, _) => {
-                    if let Some(c) = self.parse_cpow(testname) {
-                        cpows.push(c);
+                &LogLine::StackComponent(_, _, _, _) => {
+                    match self.parse_cpow(testname) {
+                        Some(SomeCPOW::CPOW(c)) => cpows.push(c),
+                        Some(SomeCPOW::Indirect(i)) => indirect_cpows.push(i),
+                        None => {
+                        }
                     }
                 }
             }
         }
 
-        if !cpows.is_empty() {
+        if !cpows.is_empty() || !indirect_cpows.is_empty() {
             cpows.sort_by_key(|k| k.line_no);
-            Some(Test { testname: String::from(testname), cpows: cpows })
+            indirect_cpows.sort_by_key(|k| k.line_no);
+            Some(Test { testname: String::from(testname), cpows: cpows, indirect_cpows: indirect_cpows })
         } else {
             None
         }
@@ -203,6 +262,16 @@ fn main() {
                 print!(" shims: {:?}", shims);
             }
             println!("");
+
+            if !test.indirect_cpows.is_empty() {
+                let mut last_lineno = 0;
+                for icpow in test.indirect_cpows.iter() {
+                    if icpow.line_no != last_lineno {
+                        last_lineno = icpow.line_no;
+                        println!("\t{} {}:{}", if icpow.shim { "*" } else { " " }, icpow.filename, icpow.line_no);
+                    }
+                }
+            }
         }
     }
 }
