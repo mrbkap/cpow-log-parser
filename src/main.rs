@@ -154,7 +154,7 @@ impl<'a> CPOWFinder<'a> {
                 &LogLine::StackComponent(0, _, _, _) | &LogLine::TestStart(_) => break,
                 &LogLine::StackComponent(_, ref path, ref filename, line_no) => {
                     self.take_line();
-                    if !report && is_test_path(path) {
+                    if (!report || cpow.line_no == 0) && is_test_path(path) {
                         report = true;
 
                         if cpow.line_no == 0 {
