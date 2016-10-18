@@ -43,6 +43,8 @@ enum LogLine {
     StackComponent(u32, String, String, u32),
 }
 
+const REPORT_SHIMS: bool = false;
+
 impl Parser {
     fn new() -> Parser {
         Parser {
@@ -196,8 +198,16 @@ impl<'a> CPOWFinder<'a> {
                 &LogLine::TestStart(_) => break,
                 &LogLine::StackComponent(_, _, _, _) => {
                     match self.parse_cpow(testname) {
-                        Some(SomeCPOW::CPOW(c)) => cpows.push(c),
-                        Some(SomeCPOW::Indirect(i)) => indirect_cpows.push(i),
+                        Some(SomeCPOW::CPOW(c)) => {
+                            if !c.shim || REPORT_SHIMS {
+                                cpows.push(c)
+                            }
+                        }
+                        Some(SomeCPOW::Indirect(i)) => {
+                            if !i.shim || REPORT_SHIMS {
+                                indirect_cpows.push(i)
+                            }
+                        }
                         None => {
                         }
                     }
