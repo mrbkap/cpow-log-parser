@@ -1,8 +1,9 @@
+extern crate clap;
 extern crate regex;
 
-use std::env::args;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+use clap::App;
 
 use regex::Regex;
 
@@ -43,8 +44,6 @@ enum LogLine {
     StackComponent(u32, String, String, u32),
 }
 
-const REPORT_SHIMS: bool = false;
-
 impl Parser {
     fn new() -> Parser {
         Parser {
@@ -83,6 +82,7 @@ struct CPOWFinder<'a> {
     idx: usize,
     lines: &'a [LogLine],
     peeked: bool,
+    include_shims: bool,
 }
 
 impl<'a> CPOWFinder<'a> {
@@ -199,12 +199,12 @@ impl<'a> CPOWFinder<'a> {
                 &LogLine::StackComponent(_, _, _, _) => {
                     match self.parse_cpow(testname) {
                         Some(SomeCPOW::CPOW(c)) => {
-                            if !c.shim || REPORT_SHIMS {
+                            if !c.shim || self.include_shims {
                                 cpows.push(c)
                             }
                         }
                         Some(SomeCPOW::Indirect(i)) => {
-                            if !i.shim || REPORT_SHIMS {
+                            if !i.shim || self.include_shims {
                                 indirect_cpows.push(i)
                             }
                         }
@@ -225,8 +225,8 @@ impl<'a> CPOWFinder<'a> {
     }
 
     // Returns a list of tests that have CPOW uses.
-    fn compile_cpows(lines: &[LogLine]) -> Vec<Test> {
-        let mut finder = CPOWFinder { idx: 0, lines: lines, peeked: false };
+    fn compile_cpows(lines: &[LogLine], include_shims: bool) -> Vec<Test> {
+        let mut finder = CPOWFinder { idx: 0, lines: lines, peeked: false, include_shims: include_shims };
         let mut tests = Vec::new();
         while let Some(next_line) = finder.peek_line() {
             match next_line {
@@ -245,11 +245,25 @@ impl<'a> CPOWFinder<'a> {
 }
 
 fn main() {
+    let matches = App::new("cpow-log-parser")
+                          .version("1.0")
+                          .author("Blake Kaplan <mrbkap@gmail.com>")
+                          .about("Parses mochitest browser-chrome logs to find CPOW uses")
+                          .args_from_usage("[shims] -s, --include-shims   'Specifies whether to include CPOWs via shims'
+                                            <FILES>...                    'The log files to parse'")
+                          .get_matches();
+
+    let include_shims = matches.is_present("shims");
+    if include_shims {
+        // Empty line intentional.
+        println!("Including CPOWs via shims. Indirect CPOWs via a shim are marked by a leading *.\n");
+    }
+
     let m = Parser::new();
 
-    for fname in args() {
+    for fname in matches.values_of("FILES").unwrap() {
         let p = m.parse_file(&fname);
-        let tests = CPOWFinder::compile_cpows(p.as_slice());
+        let tests = CPOWFinder::compile_cpows(p.as_slice(), include_shims);
 
         for test in tests {
             print!("{} -", test.testname);
