@@ -5,4 +5,5 @@ authors = ["Blake Kaplan <mrbkap@gmail.com>"]
 
 [dependencies]
 regex = "0.1"
+clap = "2"
 
