@@ -48,8 +48,8 @@ impl Parser {
     fn new() -> Parser {
         Parser {
             test_start: Regex::new(r"\bTEST-START\s+\|\s+.+/(.+)$").unwrap(),
-            // Capture indices:              1                                  2    3     4
-            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+(.+)/(.+):(\d+)\s+\(.*\)$").unwrap(),
+            // Capture indices:              1                                  2   3     4
+            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+(.+/(.+)):(\d+)\s+\(.*\)$").unwrap(),
         }
     }
 
@@ -137,8 +137,6 @@ impl<'a> CPOWFinder<'a> {
                     // Indirect CPOW, start filling it in now.
                     indirect_cpow.line_no = line_no;
                     indirect_cpow.filename.push_str(path);
-                    indirect_cpow.filename.push('/');
-                    indirect_cpow.filename.push_str(filename);
                 }
 
                 // Otherwise, we don't know what to do with this filename.
@@ -165,8 +163,6 @@ impl<'a> CPOWFinder<'a> {
                                 // test, use it.
                                 indirect_cpow.line_no = line_no;
                                 indirect_cpow.filename.push_str(path);
-                                indirect_cpow.filename.push('/');
-                                indirect_cpow.filename.push_str(filename);
                             }
                         }
                     }
