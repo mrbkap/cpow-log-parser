@@ -48,8 +48,8 @@ impl Parser {
     fn new() -> Parser {
         Parser {
             test_start: Regex::new(r"\bTEST-START\s+\|\s+.+/(.+)$").unwrap(),
-            // Capture indices:              1                                  2   3     4
-            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{12}\s+[ib]\s+(.+/(.+)):(\d+)\s+\(.*\)$").unwrap(),
+            // Capture indices:              1                                    2   3     4
+            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{8,12}\s+[ib]\s+(.+/(.+)):(\d+)\s+\(.*\)$").unwrap(),
         }
     }
 
