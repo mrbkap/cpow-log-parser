@@ -286,7 +286,7 @@ fn main() {
             println!("");
 
             if !test.indirect_cpows.is_empty() {
-                let mut last_lineno = 0;
+                let mut last_lineno = 0u32;
                 for icpow in test.indirect_cpows.iter() {
                     if icpow.line_no != last_lineno {
                         last_lineno = icpow.line_no;
