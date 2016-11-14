@@ -225,10 +225,12 @@ impl<'a> CPOWFinder<'a> {
         let mut finder = CPOWFinder { idx: 0, lines: lines, peeked: false, include_shims: include_shims };
         let mut tests = Vec::new();
         while let Some(next_line) = finder.peek_line() {
+            finder.take_line();
             match next_line {
-                &LogLine::StackComponent(..) => continue,
+                &LogLine::StackComponent(..) => {
+                    panic!("unconsumed StackComponent?");
+                }
                 &LogLine::TestStart(ref fname) => {
-                    finder.take_line();
                     if let Some(test) = finder.parse_test(fname) {
                         tests.push(test);
                     }
