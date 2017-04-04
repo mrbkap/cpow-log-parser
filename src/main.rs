@@ -3,6 +3,7 @@ extern crate regex;
 
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
+use std::collections::BTreeMap;
 use clap::App;
 
 use regex::Regex;
@@ -263,40 +264,45 @@ fn main() {
     }
 
     let m = Parser::new();
+    let mut all_tests = BTreeMap::new();
 
     for fname in matches.values_of("FILES").unwrap() {
         let p = m.parse_file(&fname);
         let tests = CPOWFinder::compile_cpows(p.as_slice(), include_shims);
 
         for test in tests {
-            print!("{} -", test.testname);
-            let mut non_shims = test.cpows.iter()
-                                          .filter(|c| !c.shim)
-                                          .map(|c| c.line_no)
-                                          .collect::<Vec<_>>();
-            let mut shims = test.cpows.iter()
-                                      .filter(|c| c.shim)
+            all_tests.insert(test.testname.clone(), test);
+        }
+    }
+
+    for (_, test) in &all_tests {
+        print!("{} -", test.testname);
+        let mut non_shims = test.cpows.iter()
+                                      .filter(|c| !c.shim)
                                       .map(|c| c.line_no)
                                       .collect::<Vec<_>>();
+        let mut shims = test.cpows.iter()
+                                  .filter(|c| c.shim)
+                                  .map(|c| c.line_no)
+                                  .collect::<Vec<_>>();
 
-            non_shims.dedup();
-            shims.dedup();
+        non_shims.dedup();
+        shims.dedup();
 
-            if !non_shims.is_empty() {
-                print!(" {:?}", non_shims);
-            }
-            if !shims.is_empty() {
-                print!(" shims: {:?}", shims);
-            }
-            println!("");
+        if !non_shims.is_empty() {
+            print!(" {:?}", non_shims);
+        }
+        if !shims.is_empty() {
+            print!(" shims: {:?}", shims);
+        }
+        println!("");
 
-            if !test.indirect_cpows.is_empty() {
-                let mut last_lineno = 0u32;
-                for icpow in test.indirect_cpows.iter() {
-                    if icpow.line_no != last_lineno {
-                        last_lineno = icpow.line_no;
-                        println!("\t{} {}:{}", if icpow.shim { "*" } else { " " }, icpow.filename, icpow.line_no);
-                    }
+        if !test.indirect_cpows.is_empty() {
+            let mut last_lineno = 0u32;
+            for icpow in test.indirect_cpows.iter() {
+                if icpow.line_no != last_lineno {
+                    last_lineno = icpow.line_no;
+                    println!("\t{} {}:{}", if icpow.shim { "*" } else { " " }, icpow.filename, icpow.line_no);
                 }
             }
         }
