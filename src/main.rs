@@ -48,8 +48,8 @@ impl Parser {
     fn new() -> Parser {
         Parser {
             test_start: Regex::new(r"\bTEST-START\s+\|\s+.+/(.+)$").unwrap(),
-            // Capture indices:              1                                    2   3     4
-            stack_component: Regex::new(r"#(\d+)\s+0x[0-9a-zA-Z]{8,12}\s+[ib]\s+(.+/(.+)):(\d+)\s+\(.*\)$").unwrap(),
+            // Capture indices:              1                                       3   4     5
+            stack_component: Regex::new(r"#(\d+)\s+(0x)?[0-9a-zA-Z]{8,12}\s+[ib]\s+(.+/(.+)):(\d+)\s+\(.*\)$").unwrap(),
         }
     }
 
@@ -72,9 +72,9 @@ impl Parser {
                 parsed.push(LogLine::TestStart(testname));
             } else if let Some(captures) = self.stack_component.captures(&line) {
                 let idx: u32 = captures.at(1).unwrap().parse::<u32>().unwrap();
-                let path = String::from(captures.at(2).unwrap());
-                let fname = String::from(captures.at(3).unwrap());
-                let line_no = captures.at(4).unwrap().parse::<u32>().unwrap();
+                let path = String::from(captures.at(3).unwrap());
+                let fname = String::from(captures.at(4).unwrap());
+                let line_no = captures.at(5).unwrap().parse::<u32>().unwrap();
                 parsed.push(LogLine::StackComponent(idx, path, fname, line_no));
             }
         }
