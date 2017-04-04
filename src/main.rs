@@ -2,7 +2,7 @@ extern crate clap;
 extern crate regex;
 
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{self, BufRead, BufReader};
 use clap::App;
 
 use regex::Regex;
@@ -55,12 +55,17 @@ impl Parser {
 
     fn parse_file(self: &Parser, fname: &str) -> Vec<LogLine> {
         let mut parsed = Vec::new();
-        let file = File::open(fname);
-        if file.is_err() {
-            println!("Warning ({}): {}", fname, file.unwrap_err());
-            return parsed;
-        }
-        let f = BufReader::new(file.unwrap());
+        let reader : Box<io::Read> = if fname != "-" {
+            let file = File::open(fname);
+            if file.is_err() {
+                println!("Warning ({}): {}", fname, file.unwrap_err());
+                return parsed;
+            }
+            Box::new(file.unwrap())
+        } else {
+            Box::new(io::stdin())
+        };
+        let f = BufReader::new(reader);
         for line in f.lines().filter_map(|r| r.ok()) {
             if let Some(captures) = self.test_start.captures(&line) {
                 let testname = String::from(captures.at(1).unwrap());
@@ -248,7 +253,7 @@ fn main() {
                           .author("Blake Kaplan <mrbkap@gmail.com>")
                           .about("Parses mochitest browser-chrome logs to find CPOW uses")
                           .args_from_usage("[shims] -s, --include-shims   'Specifies whether to include CPOWs via shims'
-                                            <FILES>...                    'The log files to parse'")
+                                            <FILES>...                    'The log files to parse (\"-\" to specify stdin)'")
                           .get_matches();
 
     let include_shims = matches.is_present("shims");
