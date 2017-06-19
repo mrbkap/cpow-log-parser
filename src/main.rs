@@ -123,7 +123,8 @@ impl<'a> CPOWFinder<'a> {
     // the test we care about.
     fn parse_cpow(&mut self, testname: &str) -> Option<SomeCPOW> {
         fn is_test_path(p: &str) -> bool {
-            p.starts_with("chrome://mochitests/")
+            p.starts_with("chrome://mochitests/") ||
+                p.starts_with("chrome://mochikit/")
         }
 
         let mut report = false; // only report CPOWs from this test.
