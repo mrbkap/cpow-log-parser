@@ -266,16 +266,19 @@ fn main() {
 
     let m = Parser::new();
     let mut all_tests = BTreeMap::new();
+    let mut num_cpows = 0;
 
     for fname in matches.values_of("FILES").unwrap() {
         let p = m.parse_file(&fname);
         let tests = CPOWFinder::compile_cpows(p.as_slice(), include_shims);
 
         for test in tests {
+            num_cpows += test.cpows.len() + test.indirect_cpows.len();
             all_tests.insert(test.testname.clone(), test);
         }
     }
 
+    println!("Found {} CPOWs in {} tests", num_cpows, all_tests.len());
     for (_, test) in &all_tests {
         print!("{} -", test.testname);
         let mut non_shims = test.cpows.iter()
