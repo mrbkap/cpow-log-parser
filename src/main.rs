@@ -1,16 +1,15 @@
 extern crate clap;
-extern crate regex;
+#[macro_use]
+extern crate nom;
 
+use nom::{IResult, not_line_ending, digit, hex_digit};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::collections::BTreeMap;
+use std::str::{self, FromStr};
 use clap::App;
 
-use regex::Regex;
-
 struct Parser {
-    test_start: Regex,
-    stack_component: Regex,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -47,14 +46,43 @@ enum LogLine {
 
 impl Parser {
     fn new() -> Parser {
-        Parser {
-            test_start: Regex::new(r"\bTEST-START\s+\|\s+.+/(.+)$").unwrap(),
-            // Capture indices:              1                                       3   4     5
-            stack_component: Regex::new(r"#(\d+)\s+(0x)?[0-9a-zA-Z]{8,12}\s+[ib]\s+(.+/(.+)):(\d+)\s+\(.*\)$").unwrap(),
-        }
+        Parser { }
     }
 
     fn parse_file(self: &Parser, fname: &str) -> Vec<LogLine> {
+        named!(test_start<&str>,
+               ws!(do_parse!(take_until_and_consume_s!("TEST-START") >>
+                             tag!("|") >>
+                             path: not_line_ending >>
+                             ( str::from_utf8(path).unwrap() ))));
+
+        named!(parsed_number<u32>,
+               map_res!(map_res!(ws!(digit), str::from_utf8), FromStr::from_str));
+
+        named!(stack_component<(u32, &str)>,
+               ws!(do_parse!(take_until_and_consume_s!("#") >>
+                  component: parsed_number                  >>
+                             opt!(tag!("0x"))               >>
+                             hex_digit                      >>
+                             alt!(tag!("i") | tag!("b"))    >>
+                        loc: take_until_s!(" (")            >>
+                             delimited!(tag!("("),
+                                        is_not!(")"),
+                                        tag!(")"))          >>
+
+                             (component, str::from_utf8(loc).unwrap()))));
+
+        // When finding the filename component of a path, returns the position
+        // after the last slash or 0 if there wasn't a path component.
+        fn last_slash_idx(s: &str) -> usize {
+            if let Some(idx) = s.rfind('/') {
+                idx + 1
+            } else {
+                0
+            }
+        }
+
+
         let mut parsed = Vec::new();
         let reader : Box<io::Read> = if fname != "-" {
             let file = File::open(fname);
@@ -68,14 +96,20 @@ impl Parser {
         };
         let f = BufReader::new(reader);
         for line in f.lines().filter_map(|r| r.ok()) {
-            if let Some(captures) = self.test_start.captures(&line) {
-                let testname = String::from(captures.at(1).unwrap());
-                parsed.push(LogLine::TestStart(testname));
-            } else if let Some(captures) = self.stack_component.captures(&line) {
-                let idx: u32 = captures.at(1).unwrap().parse::<u32>().unwrap();
-                let path = String::from(captures.at(3).unwrap());
-                let fname = String::from(captures.at(4).unwrap());
-                let line_no = captures.at(5).unwrap().parse::<u32>().unwrap();
+            let bytes = line.into_bytes();
+            if let IResult::Done(rest, path) = test_start(&bytes[..]) {
+                assert!(rest.len() == 0);
+
+                let last_slash = last_slash_idx(&path);
+                parsed.push(LogLine::TestStart(String::from(&path[last_slash..])));
+            } else if let IResult::Done(rest, (idx, loc)) = stack_component(&bytes[..]) {
+                assert!(rest.len() == 0);
+
+                let lineno_sep = loc.rfind(':').unwrap();
+                let path = String::from(&loc[0..lineno_sep]);
+                let fname = String::from(&path[last_slash_idx(&path)..]);
+                let line_no = loc[lineno_sep + 1..].parse::<u32>().unwrap();
+
                 parsed.push(LogLine::StackComponent(idx, path, fname, line_no));
             }
         }
