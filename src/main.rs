@@ -2,7 +2,7 @@ extern crate clap;
 #[macro_use]
 extern crate nom;
 
-use nom::{IResult, not_line_ending, digit, hex_digit};
+use nom::{digit, hex_digit, not_line_ending, IResult};
 use std::fs::File;
 use std::io::{self, BufRead, BufReader};
 use std::iter;
@@ -11,7 +11,7 @@ use std::str::{self, FromStr};
 use clap::App;
 
 struct Parser {
-    input_stream: Box<Iterator<Item=String>>,
+    input_stream: Box<Iterator<Item = String>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
@@ -48,18 +48,22 @@ enum LogLine {
 
 impl Parser {
     fn new(fname: &str) -> Parser {
-        let reader : Box<io::Read> = if fname != "-" {
+        let reader: Box<io::Read> = if fname != "-" {
             let file = File::open(fname);
             if file.is_err() {
                 println!("Warning ({}): {}", fname, file.unwrap_err());
-                return Parser { input_stream: Box::new(iter::empty::<String>()) };
+                return Parser {
+                    input_stream: Box::new(iter::empty::<String>()),
+                };
             }
             Box::new(file.unwrap())
         } else {
             Box::new(io::stdin())
         };
         let f = BufReader::new(reader);
-        Parser { input_stream: Box::new(f.lines().filter_map(|r| r.ok())) }
+        Parser {
+            input_stream: Box::new(f.lines().filter_map(|r| r.ok())),
+        }
     }
 }
 
@@ -146,13 +150,19 @@ impl<'a> CPOWFinder<'a> {
     // the test we care about.
     fn parse_cpow(&mut self, testname: &str) -> Option<SomeCPOW> {
         fn is_test_path(p: &str) -> bool {
-            p.starts_with("chrome://mochitests/") ||
-                p.starts_with("chrome://mochikit/")
+            p.starts_with("chrome://mochitests/") || p.starts_with("chrome://mochikit/")
         }
 
         let mut report = false; // only report CPOWs from this test.
-        let mut cpow = CPOW { line_no: 0, shim: false };
-        let mut indirect_cpow = IndirectCPOW { line_no: 0, shim: false, filename: String::new() };
+        let mut cpow = CPOW {
+            line_no: 0,
+            shim: false,
+        };
+        let mut indirect_cpow = IndirectCPOW {
+            line_no: 0,
+            shim: false,
+            filename: String::new(),
+        };
         match self.cur_line.as_ref().unwrap() {
             &LogLine::StackComponent(idx, ref path, ref filename, line_no) => {
                 assert!(idx == 0);
@@ -225,29 +235,26 @@ impl<'a> CPOWFinder<'a> {
         loop {
             match self.cur_line.as_ref() {
                 None | Some(&LogLine::TestStart(_)) => break,
-                Some(&LogLine::StackComponent(_, _, _, _)) => {
-                    match self.parse_cpow(testname) {
-                        Some(SomeCPOW::CPOW(c)) => {
-                            if !c.shim || self.include_shims {
-                                cpows.push(c)
-                            }
-                        }
-                        Some(SomeCPOW::Indirect(i)) => {
-                            if !i.shim || self.include_shims {
-                                indirect_cpows.push(i)
-                            }
-                        }
-                        None => {
-                        }
-                    }
-                }
+                Some(&LogLine::StackComponent(_, _, _, _)) => match self.parse_cpow(testname) {
+                    Some(SomeCPOW::CPOW(c)) => if !c.shim || self.include_shims {
+                        cpows.push(c)
+                    },
+                    Some(SomeCPOW::Indirect(i)) => if !i.shim || self.include_shims {
+                        indirect_cpows.push(i)
+                    },
+                    None => {}
+                },
             }
         }
 
         if !cpows.is_empty() || !indirect_cpows.is_empty() {
             cpows.sort_by_key(|k| k.line_no);
             indirect_cpows.sort_by_key(|k| k.line_no);
-            Some(Test { testname: String::from(testname), cpows: cpows, indirect_cpows: indirect_cpows })
+            Some(Test {
+                testname: String::from(testname),
+                cpows: cpows,
+                indirect_cpows: indirect_cpows,
+            })
         } else {
             None
         }
@@ -255,7 +262,11 @@ impl<'a> CPOWFinder<'a> {
 
     // Returns a list of tests that have CPOW uses.
     fn compile_cpows(mut parser: &mut Parser, include_shims: bool) -> Vec<Test> {
-        let mut finder = CPOWFinder { parser: &mut parser, cur_line: None, include_shims: include_shims };
+        let mut finder = CPOWFinder {
+            parser: &mut parser,
+            cur_line: None,
+            include_shims: include_shims,
+        };
         let mut tests = Vec::new();
         if !finder.next_line() {
             return tests;
@@ -281,17 +292,20 @@ impl<'a> CPOWFinder<'a> {
 
 fn main() {
     let matches = App::new("cpow-log-parser")
-                          .version("1.0")
-                          .author("Blake Kaplan <mrbkap@gmail.com>")
-                          .about("Parses mochitest browser-chrome logs to find CPOW uses")
-                          .args_from_usage("[shims] -s, --include-shims   'Specifies whether to include CPOWs via shims'
-                                            <FILES>...                    'The log files to parse (\"-\" to specify stdin)'")
-                          .get_matches();
+        .version("1.0")
+        .author("Blake Kaplan <mrbkap@gmail.com>")
+        .about("Parses mochitest browser-chrome logs to find CPOW uses")
+        .args_from_usage(
+            "[shims] -s, --include-shims   'Specifies whether to include CPOWs via shims'
+             <FILES>...                    'The log files to parse (\"-\" to specify stdin)'",
+        )
+        .get_matches();
 
     let include_shims = matches.is_present("shims");
     if include_shims {
         // Empty line intentional.
-        println!("Including CPOWs via shims. Indirect CPOWs via a shim are marked by a leading *.\n");
+        println!("Including CPOWs via shims. Indirect CPOWs via a shim are \
+                 marked by a leading *.\n");
     }
 
     let mut all_tests = BTreeMap::new();
@@ -310,14 +324,16 @@ fn main() {
     println!("Found {} CPOWs in {} tests", num_cpows, all_tests.len());
     for (_, test) in &all_tests {
         print!("{} -", test.testname);
-        let mut non_shims = test.cpows.iter()
-                                      .filter(|c| !c.shim)
-                                      .map(|c| c.line_no)
-                                      .collect::<Vec<_>>();
-        let mut shims = test.cpows.iter()
-                                  .filter(|c| c.shim)
-                                  .map(|c| c.line_no)
-                                  .collect::<Vec<_>>();
+        let mut non_shims = test.cpows
+            .iter()
+            .filter(|c| !c.shim)
+            .map(|c| c.line_no)
+            .collect::<Vec<_>>();
+        let mut shims = test.cpows
+            .iter()
+            .filter(|c| c.shim)
+            .map(|c| c.line_no)
+            .collect::<Vec<_>>();
 
         non_shims.dedup();
         shims.dedup();
@@ -335,7 +351,9 @@ fn main() {
             for icpow in test.indirect_cpows.iter() {
                 if icpow.line_no != last_lineno {
                     last_lineno = icpow.line_no;
-                    println!("\t{} {}:{}", if icpow.shim { "*" } else { " " }, icpow.filename, icpow.line_no);
+                    println!("\t{} {}:{}",
+                             if icpow.shim { "*" } else { " " },
+                             icpow.filename, icpow.line_no);
                 }
             }
         }
