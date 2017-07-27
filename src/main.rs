@@ -296,12 +296,12 @@ fn main() {
         .author("Blake Kaplan <mrbkap@gmail.com>")
         .about("Parses mochitest browser-chrome logs to find CPOW uses")
         .args_from_usage(
-            "[shims] -s, --include-shims   'Specifies whether to include CPOWs via shims'
+            "[shims] -S, --ignore-shims    'Specifies whether to ignore CPOWs via shims'
              <FILES>...                    'The log files to parse (\"-\" to specify stdin)'",
         )
         .get_matches();
 
-    let include_shims = matches.is_present("shims");
+    let include_shims = !matches.is_present("shims");
     if include_shims {
         // Empty line intentional.
         println!("Including CPOWs via shims. Indirect CPOWs via a shim are \
