@@ -9,7 +9,7 @@ Sample usage assuming tests have been downloaded locally to
 `~/tmp/cpow-logs/`:
 
     $ cargo build --release
-    $ cargo run --release -- -s ~/tmp/cpow-logs/*.log
+    $ cargo run --release -- ~/tmp/cpow-logs/*.log
     <output is the CPOWs>
 
 
