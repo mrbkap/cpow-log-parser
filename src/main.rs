@@ -97,11 +97,7 @@ impl Iterator for Parser {
         // When finding the filename component of a path, returns the position
         // after the last slash or 0 if there wasn't a path component.
         fn last_slash_idx(s: &str) -> usize {
-            if let Some(idx) = s.rfind('/') {
-                idx + 1
-            } else {
-                0
-            }
+            s.rfind('/').map_or(0, |i| i + 1)
         }
 
         while let Some(line) = self.input_stream.next() {
